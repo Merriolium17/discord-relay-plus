@@ -478,7 +478,9 @@ public class DiscordRelay extends JavaPlugin implements Listener {
             Collections.sort(allPlayerNames, String.CASE_INSENSITIVE_ORDER);
 
             int totalPlayerCount = allPlayerNames.size();
-            String playerListString = totalPlayerCount == 0 ? "No players online." : String.join(", ", allPlayerNames);
+            String playerListString = totalPlayerCount == 0 ? "No players online." : allPlayerNames.stream()
+                    .map(name -> escapeMarkdown(name))
+                    .collect(Collectors.joining(", "));
             String message = String.format("Online players (%d): %s", totalPlayerCount, playerListString);
 
             EmbedBuilder embed = new EmbedBuilder()
@@ -539,11 +541,11 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                 EmbedBuilder embed = new EmbedBuilder();
                 if (formattedStat == null || formattedStat.isEmpty()) {
                     embed.setTitle("No Data Found")
-                            .setDescription("No data found for player: " + playerName)
+                            .setDescription("No data found for player: " + escapeMarkdown(playerName))
                             .setColor(Color.RED);
                 } else {
                     embed.setTitle("Player Statistics")
-                            .setDescription(formattedStat)
+                            .setDescription(escapeMarkdown(formattedStat))
                             .setColor(Color.GREEN);
                 }
                 return embed;
@@ -571,7 +573,7 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                 EmbedBuilder embed = new EmbedBuilder();
                 if (stats == null) {
                     embed.setTitle("No Data Found")
-                            .setDescription("No data found for player: " + playerName)
+                            .setDescription("No data found for player: " + escapeMarkdown(playerName))
                             .setColor(Color.RED);
                 } else {
                     int netRep = stats.getNetRep();
@@ -579,7 +581,7 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                     int negativeRep = stats.getNegativeRep();
 
                     String description = String.format("%s has %d reputation (+%d/-%d)",
-                            stats.getUsername(), netRep, positiveRep, negativeRep);
+                            escapeMarkdown(stats.getUsername()), netRep, positiveRep, negativeRep);
 
                     Color color;
                     if (netRep > 0) {
@@ -625,7 +627,7 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                     } catch (Exception e) {
                         EmbedBuilder embed = new EmbedBuilder()
                                 .setTitle("Error")
-                                .setDescription("Error retrieving data for " + playerName + ": " + e.getMessage())
+                                .setDescription("Error retrieving data for " + escapeMarkdown(playerName) + ": " + e.getMessage())
                                 .setColor(Color.RED);
                         event.getHook().sendMessageEmbeds(embed.build()).queue();
                     }
@@ -645,6 +647,16 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                         .setColor(Color.RED);
                 event.getHook().sendMessageEmbeds(embed.build()).queue();
             }
+        }
+
+        private static String escapeMarkdown(String text) {
+            if (text == null) return null;
+            return text.replace("\\", "\\\\")
+                       .replace("*", "\\*")
+                       .replace("_", "\\_")
+                       .replace("~", "\\~")
+                       .replace("`", "\\`")
+                       .replace("|", "\\|");
         }
     }
 
