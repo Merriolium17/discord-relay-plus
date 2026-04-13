@@ -1,25 +1,25 @@
 package com.jellypudding.discordRelay;
-
 import io.papermc.paper.event.player.AsyncChatEvent;
+import net.dv8tion.jda.api.entities.channel.concrete.ThreadChannel;
+import org.geysermc.floodgate.api.FloodgateApi;
+import org.geysermc.floodgate.api.player.FloodgatePlayer;
+import org.geysermc.floodgate.util.DeviceOs;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import net.dv8tion.jda.api.interactions.commands.OptionType;
-import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
@@ -28,67 +28,72 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
-import com.jellypudding.discordRelay.utils.ChromaTagUtil;
-import com.jellypudding.discordRelay.utils.WordFilterUtil;
-
 import java.awt.Color;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
-public class DiscordRelay extends JavaPlugin implements Listener {
+public class DiscordRelay extends JavaPlugin implements Listener, TabCompleter{
 
     private JDA jda;
-    private String discordChannelId;
+    private String playerListChannelId;
+    private String deathChannelId;
+    private String eventChannelId;
+    private String chatChannelId;
+    private String serverPrefix;
+    private String mode;
     private boolean isConfigured = false;
     private long startTime;
-    private ChromaTagUtil chromaTagUtil;
-    private WordFilterUtil wordFilterUtil;
-
-    public boolean isPluginConfigured() {
-        return isConfigured;
-    }
+    private long onlineTime;
+    private long[] timeArray;
+    private String[] nameArray;
 
     private void loadConfig() {
         reloadConfig();
         FileConfiguration config = getConfig();
         String token = config.getString("discord-bot-token");
-        discordChannelId = config.getString("discord-channel-id");
+        eventChannelId = config.getString("join-leave-channel-id");
+        chatChannelId = config.getString("chat-channel-id");
+        deathChannelId = config.getString("death-channel-id");
+        playerListChannelId = config.getString("playerlist-channel-id");
+        serverPrefix = config.getString("server-prefix-id");
+        mode = config.getString("channel-type");
 
-        isConfigured = token != null && !token.equals("YOUR_BOT_TOKEN_HERE") &&
-                discordChannelId != null && !discordChannelId.equals("YOUR_CHANNEL_ID_HERE");
+        if (eventChannelId.equals("YOUR_CHANNEL_ID_HERE")||eventChannelId.equals("")) {
+            eventChannelId = null;
+        }
+        if (chatChannelId.equals("YOUR_CHANNEL_ID_HERE")||chatChannelId.equals("")) {
+            chatChannelId = null;
+        }
+        if (deathChannelId.equals("YOUR_CHANNEL_ID_HERE")||deathChannelId.equals("")) {
+            deathChannelId = null;
+        }
+        if (playerListChannelId.equals("YOUR_CHANNEL_ID_HERE")||playerListChannelId.equals("")) {
+            playerListChannelId = null;
+        }
+        if (serverPrefix.equals("YOUR_SERVER_PREFIX_ID_HERE")) {
+            serverPrefix = "";
+        }
+        isConfigured = token != null;
     }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadConfig();
+        timeArray = new long[50];
+        nameArray = new String[50];
         startTime = System.currentTimeMillis();
-
-        chromaTagUtil = new ChromaTagUtil(getLogger());
-
-        boolean filterEnabled = getConfig().getBoolean("word-filter.enabled", true);
-        List<String> filterWords = getConfig().getStringList("word-filter.words");
-        wordFilterUtil = new WordFilterUtil(filterEnabled, filterWords);
-
-        // Start cache cleanup task (runs every 20 minutes)
-        Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-            chromaTagUtil.cleanupCache();
-        }, 24000L, 24000L);
-
         if (isConfigured) {
-            initialisePlugin(false);
-            DiscordRelayAPI.initialize(this);
+            initializePlugin(false);
         } else {
-            getLogger().warning("The Discord bot is not yet configured. Please check your DiscordRelay/config.yml file and then use the /discordrelay reload command.");
+            getLogger().warning("The Discord bot is not yet configured. Please check your DiscordRelay/config.yml file.");
         }
     }
 
-    private void initialisePlugin(boolean isReload) {
+    private void initializePlugin(boolean isReload) {
         connectToDiscord(isReload);
         if (isConfigured) {
             registerListeners();
@@ -113,35 +118,11 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                     .build();
             jda.awaitReady();
 
-            // Register the slash commands
-            jda.updateCommands().addCommands(
-                    Commands.slash("list", "Get a list of online players"),
-                    Commands.slash("uptime", "Get the server's uptime"),
-                    Commands.slash("tps", "Get the server's TPS (ticks per second)"),
-                    Commands.slash("firstseen", "Check when a player first joined the server")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("lastseen", "Check when a player was last seen on the server")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("timeplayed", "Check how long a player has played on the server")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("chatter", "Check how many chat messages a player has sent")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("kills", "Check how many kills a player has")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("deaths", "Check how many times a player has died")
-                            .addOption(OptionType.STRING, "name", "Player name", true),
-                    Commands.slash("reputation", "Check a player's reputation")
-                            .addOption(OptionType.STRING, "player", "Player name", true)
-            ).queue();
-
             getLogger().info("Discord bot connected successfully!");
 
-            if (!isReload) {
-                sendToDiscord("**Server is starting up!**");
-                int pluginId = 27558;
-                new Metrics(this, pluginId);
+            if (!isReload && playerListChannelId != null) {
+                sendToDiscord("**:green_circle:" + serverPrefix +"が起動しました**");
             }
-
         } catch (Exception e) {
             getLogger().severe("Failed to connect to Discord. Please check your bot token and try again.");
             isConfigured = false;
@@ -152,8 +133,10 @@ public class DiscordRelay extends JavaPlugin implements Listener {
     public void onDisable() {
         if (jda != null) {
             try {
-                sendToDiscord("**Server is shutting down!**");
-
+                if (playerListChannelId != null) {
+                    sendToDiscord("**:red_circle:" + serverPrefix + "が終了しました**");
+                }
+                jda.removeEventListener(jda.getRegisteredListeners());
                 jda.shutdownNow();
                 try {
                     if (!jda.awaitShutdown(Duration.ofSeconds(2))) {
@@ -170,100 +153,173 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                 getLogger().warning("Error during JDA shutdown: " + e.getMessage());
             }
         }
-        DiscordRelayAPI.shutdown();
         HandlerList.unregisterAll((JavaPlugin) this);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler
     public void onPlayerChat(AsyncChatEvent event) {
         if (!isConfigured) return;
-
-        if (event.isCancelled()) return;
-
-        if (event.isAsynchronous()) {
-            String playerName = event.getPlayer().getName();
-            String message = PlainTextComponentSerializer.plainText().serialize(event.message());
-            sendPlayerMessageToDiscord(playerName, message);
-        } else {
-            getServer().getScheduler().runTaskAsynchronously(this, () -> {
+        if (chatChannelId != null) {
+            if (event.isAsynchronous()) {
                 String playerName = event.getPlayer().getName();
                 String message = PlainTextComponentSerializer.plainText().serialize(event.message());
                 sendPlayerMessageToDiscord(playerName, message);
-            });
+            } else {
+                getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                    String playerName = event.getPlayer().getName();
+                    String message = PlainTextComponentSerializer.plainText().serialize(event.message());
+                    sendPlayerMessageToDiscord(playerName, message);
+                });
+            }
         }
     }
 
     private void sendPlayerMessageToDiscord(String playerName, String message) {
         if (jda != null) {
-            TextChannel channel = jda.getTextChannelById(discordChannelId);
-            if (channel != null) {
-                String filteredMessage = wordFilterUtil.filterMessage(message);
-                
+            if (playerName != "Server") {
+                TextChannel channel = jda.getTextChannelById(chatChannelId);
+                ThreadChannel thread = jda.getThreadChannelById(chatChannelId);
                 String avatarUrl = String.format("https://mc-heads.net/avatar/%s", playerName);
                 EmbedBuilder embed = new EmbedBuilder()
-                        .setAuthor(playerName, null, avatarUrl)
-                        .setDescription(filteredMessage)
+                        .setAuthor("<" + playerName + ">", null, avatarUrl)
+                        .setTitle(message)
                         .setColor(Color.YELLOW);
-                channel.sendMessageEmbeds(embed.build()).queue();
-            } else {
-                getLogger().warning("Discord channel not found!");
+                if (channel != null && mode.equals("CHANNEL")) {
+                    channel.sendMessageEmbeds(embed.build()).queue();
+                } else if (thread != null && mode.equals("THREAD")) {
+                    thread.sendMessageEmbeds(embed.build()).queue();
+                } else {
+                    getLogger().info("Discord channel not found!");
+                }
             }
         }
     }
 
-    private void sendPlayerEventToDiscord(String playerName, String action, Color color) {
+    private void sendPlayerEventToDiscord(String playerName, String action, String comment, Color color) {
         if (!isConfigured) return;
 
         if (jda != null) {
-            TextChannel channel = jda.getTextChannelById(discordChannelId);
-            if (channel != null) {
-                String avatarUrl = String.format("https://mc-heads.net/avatar/%s", playerName);
-                EmbedBuilder embed = new EmbedBuilder()
-                        .setAuthor(playerName + " " + action, null, avatarUrl)
-                        .setColor(color);
+            TextChannel channel = jda.getTextChannelById(eventChannelId);
+            ThreadChannel thread = jda.getThreadChannelById(eventChannelId);
+            String avatarUrl = String.format("https://mc-heads.net/avatar/%s", playerName);
+            EmbedBuilder embed = new EmbedBuilder()
+                    .setAuthor("<" + playerName + "> " + action, null, avatarUrl)
+                    .setFooter(comment)
+                    .setColor(color);
+            if (channel != null && mode.equals("CHANNEL")) {
                 channel.sendMessageEmbeds(embed.build()).queue();
+            } else if (thread != null && mode.equals("THREAD")) {
+                thread.sendMessageEmbeds(embed.build()).queue();
             } else {
-                getLogger().warning("Discord channel not found!");
+                getLogger().info("Discord channel not found!");
             }
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         String playerName = event.getPlayer().getName();
-        sendPlayerEventToDiscord(playerName, "joined the game", Color.GREEN);
+        String onDevice;
+        int i = 0;
+        do {
+            if (nameArray[i] == null) {
+                nameArray[i] = playerName;
+                timeArray[i] = System.currentTimeMillis();
+                break;
+            } else {
+                i++;
+            }
+        } while ( i < 50);
+        FloodgatePlayer onBedrock = FloodgateApi.getInstance().getPlayer(event.getPlayer().getUniqueId());
+        if (eventChannelId != null) {
+            if (onBedrock != null) {
+                DeviceOs device = onBedrock.getDeviceOs();
+                if (device == DeviceOs.NX) {
+                    onDevice = "Nintendo Switch";
+                } else if (device == DeviceOs.PS4) {
+                    onDevice = "PlayStation";
+                } else if (device == DeviceOs.XBOX) {
+                    onDevice = "Microsoft Xbox";
+                } else if (device == DeviceOs.GEARVR || device == DeviceOs.HOLOLENS) {
+                    onDevice = "VR Device";
+                } else if (device == DeviceOs.WIN32 || device == DeviceOs.UWP || device == DeviceOs.WINDOWS_PHONE) {
+                    onDevice = "Windows Device";
+                } else if (device == DeviceOs.IOS) {
+                    onDevice = "Apple Device";
+                } else if (device == DeviceOs.GOOGLE || device == DeviceOs.AMAZON) {
+                    onDevice = "Android Device";
+                } else {
+                    onDevice = device.toString();
+                }
+                sendPlayerEventToDiscord(playerName, "接続しました", "Bedrock Edition - " + onDevice, Color.GREEN);
+            } else {
+                sendPlayerEventToDiscord(playerName, "接続しました", "Java Edition", Color.GREEN);
+            }
+        }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         String playerName = event.getPlayer().getName();
-        sendPlayerEventToDiscord(playerName, "left the game", Color.RED);
+        int i = 0;
+        long online = System.currentTimeMillis();
+        long days = 0;
+        long hours = 0;
+        long minutes = 0;
+        do {
+            if (nameArray[i] == playerName) {
+                online -= timeArray[i];
+                days = online / (1000 * 60 * 60 * 24);
+                hours = (online / (1000 * 60 * 60)) % 24;
+                minutes = (online / (1000 * 60)) % 60;
+                break;
+            } else {
+                i++;
+            }
+        } while (i < 50);
+        nameArray[i] = null;
+        String timeString;
+        if (days != 0) {
+            timeString = String.format("接続日数: %d日\n接続時間: %d時間 %d分", days,hours,minutes);
+        } else if ( hours != 0) {
+            timeString = String.format("接続時間: %d時間 %d分", hours,minutes);
+        } else if (minutes != 0) {
+            timeString = String.format("接続時間: %d分", minutes);
+        } else timeString = "";
+        if (eventChannelId != null) {
+            sendPlayerEventToDiscord(playerName, "切断されました", timeString, Color.RED);
+        }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         String playerName = event.getEntity().getName();
+        int playerLevel = event.getEntity().getLevel();
         String deathMessage = event.deathMessage() != null
                 ? PlainTextComponentSerializer.plainText().serialize(Objects.requireNonNull(event.deathMessage()))
-                : playerName + " died";
-        sendDeathMessageToDiscord(playerName, deathMessage);
+                : "<" + playerName + "> died";
+        if (deathMessage != null || deathChannelId != null) {
+            sendDeathMessageToDiscord(playerName, deathMessage, playerLevel);
+        }
     }
 
-    private void sendDeathMessageToDiscord(String playerName, String deathMessage) {
+    private void sendDeathMessageToDiscord(String playerName, String deathMessage, int playerLevel) {
         if (!isConfigured) return;
 
         if (jda != null) {
-            TextChannel channel = jda.getTextChannelById(discordChannelId);
-            if (channel != null) {
-                String filteredDeathMessage = wordFilterUtil.filterMessage(deathMessage);
-
-                String avatarUrl = String.format("https://mc-heads.net/avatar/%s", playerName);
-                EmbedBuilder embed = new EmbedBuilder()
-                        .setAuthor(filteredDeathMessage, null, avatarUrl)
-                        .setColor(Color.GRAY);
+            TextChannel channel = jda.getTextChannelById(deathChannelId);
+            ThreadChannel thread = jda.getThreadChannelById(deathChannelId);
+            String avatarUrl = String.format("https://mc-heads.net/avatar/%s", playerName);
+            EmbedBuilder embed = new EmbedBuilder()
+                    .setAuthor(deathMessage, null, avatarUrl)
+                    .setFooter(String.format("Player Levels: %d",playerLevel))
+                    .setColor(Color.GRAY);
+            if (channel != null && mode.equals("CHANNEL")) {
                 channel.sendMessageEmbeds(embed.build()).queue();
+            } else if (thread != null && mode.equals("THREAD")) {
+                thread.sendMessageEmbeds(embed.build()).queue();
             } else {
-                getLogger().warning("Discord channel not found!");
+                getLogger().info("Discord channel not found!");
             }
         }
     }
@@ -272,11 +328,41 @@ public class DiscordRelay extends JavaPlugin implements Listener {
         if (!isConfigured) return;
 
         if (jda != null) {
-            TextChannel channel = jda.getTextChannelById(discordChannelId);
-            if (channel != null) {
+            TextChannel channel = jda.getTextChannelById(playerListChannelId);
+            ThreadChannel thread = jda.getThreadChannelById(playerListChannelId);
+            if (channel != null && mode.equals("CHANNEL")) {
                 channel.sendMessage(message).complete();
+            } else if (thread != null && mode.equals("THREAD")) {
+                thread.sendMessage(message).complete();
             } else {
-                getLogger().warning("Discord channel not found!");
+                getLogger().info("Discord channel not found!");
+            }
+        }
+    }
+
+    private void sendPlayerListToDiscord() {
+        if (jda != null) {
+            TextChannel channel = jda.getTextChannelById(playerListChannelId);
+            ThreadChannel thread = jda.getThreadChannelById(playerListChannelId);
+            List<String> playerNames = Bukkit.getOnlinePlayers().stream()
+                    .map(Player::getName)
+                    .collect(Collectors.toList());
+
+            String playerListString = playerNames.isEmpty() ? "現在参加者はいません" : String.join("\n- ", playerNames);
+            String message = String.format("- %s",playerListString);
+            String title = String.format("%sオンライン人数: %d人", serverPrefix, playerNames.size());
+
+            EmbedBuilder embed = new EmbedBuilder()
+                    .setTitle(title)
+                    .setDescription(message)
+                    .setFooter("プレイヤーリスト")
+                    .setColor(Color.BLUE);
+            if (channel != null && mode.equals("CHANNEL")) {
+                channel.sendMessageEmbeds(embed.build()).queue();
+            } else if (thread != null && mode.equals("THREAD")) {
+                thread.sendMessageEmbeds(embed.build()).queue();
+            } else {
+                getLogger().info("Discord channel not found!");
             }
         }
     }
@@ -290,42 +376,9 @@ public class DiscordRelay extends JavaPlugin implements Listener {
                     sender.sendMessage("DiscordRelay plugin reloaded.");
                     return true;
                 } else {
-                    sender.sendMessage("You don't have permission to reload DiscordRelay.");
+                    sender.sendMessage("You don't have permission to reload the plugin.");
                     return true;
                 }
-            } else if (args.length > 2 && args[0].equalsIgnoreCase("send")) {
-                if (sender.hasPermission("discordrelay.send")) {
-                    String colourName = args[1].toLowerCase();
-                    String fullMessage = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
-
-                    Color colour = parseColour(colourName);
-                    if (colour == null) {
-                        sender.sendMessage("Invalid colour! Available colours: red, green, blue, yellow, orange, purple, pink, grey, white, black");
-                        return true;
-                    }
-
-                    // Check if message contains a title (format: "Title: message")
-                    String title = "Server Message";
-                    String message = fullMessage;
-
-                    if (fullMessage.contains(":")) {
-                        String[] parts = fullMessage.split(":", 2);
-                        if (parts.length == 2 && !parts[0].trim().isEmpty() && !parts[1].trim().isEmpty()) {
-                            title = parts[0].trim();
-                            message = parts[1].trim();
-                        }
-                    }
-
-                    relayFormattedMessage(title, message, colour);
-                    sender.sendMessage("Message sent to Discord with " + colourName + " colour!");
-                    return true;
-                } else {
-                    sender.sendMessage("You don't have permission to send messages to Discord.");
-                    return true;
-                }
-            } else {
-                sender.sendMessage("Usage: /discordrelay reload | /discordrelay send <colour> <message>");
-                return true;
             }
         }
         return false;
@@ -333,14 +386,8 @@ public class DiscordRelay extends JavaPlugin implements Listener {
 
     private void reloadPlugin() {
         loadConfig();
-        chromaTagUtil.refresh();
-
-        boolean filterEnabled = getConfig().getBoolean("word-filter.enabled", true);
-        List<String> filterWords = getConfig().getStringList("word-filter.words");
-        wordFilterUtil = new WordFilterUtil(filterEnabled, filterWords);
-
         if (isConfigured) {
-            initialisePlugin(true);
+            initializePlugin(true);
             if (jda != null) {
                 getLogger().info("DiscordRelay plugin reloaded successfully.");
             } else {
@@ -356,367 +403,63 @@ public class DiscordRelay extends JavaPlugin implements Listener {
         }
     }
 
+    @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, String[] args) {
         if (command.getName().equalsIgnoreCase("discordrelay")) {
             if (args.length == 1) {
                 List<String> completions = new ArrayList<>();
                 completions.add("reload");
-                completions.add("send");
                 return completions;
-            } else if (args.length == 2 && args[0].equalsIgnoreCase("send")) {
-                List<String> colours = new ArrayList<>();
-                colours.add("red");
-                colours.add("green");
-                colours.add("blue");
-                colours.add("yellow");
-                colours.add("orange");
-                colours.add("purple");
-                colours.add("pink");
-                colours.add("grey");
-                colours.add("white");
-                colours.add("black");
-                return colours;
             }
         }
         return null;
     }
 
-    private Color parseColour(String colourName) {
-        switch (colourName.toLowerCase()) {
-            case "red": return Color.RED;
-            case "green": return Color.GREEN;
-            case "blue": return Color.BLUE;
-            case "yellow": return Color.YELLOW;
-            case "orange": return Color.ORANGE;
-            case "purple": return new Color(128, 0, 128);
-            case "pink": return Color.PINK;
-            case "grey": case "gray": return Color.GRAY;
-            case "white": return Color.WHITE;
-            case "black": return Color.BLACK;
-            default: return null;
-        }
-    }
-
     private class DiscordListener extends ListenerAdapter {
-        @Override
-        public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-            if (event.getName().equals("list")) {
-                event.deferReply().queue();
-                sendPlayerList(event);
-            } else if (event.getName().equals("uptime")) {
-                event.deferReply().queue();
-                sendUptime(event);
-            } else if (event.getName().equals("tps")) {
-                event.deferReply().queue();
-                sendTPS(event);
-            } else if (event.getName().equals("firstseen") || event.getName().equals("lastseen") ||
-                       event.getName().equals("timeplayed") || event.getName().equals("chatter") ||
-                       event.getName().equals("kills") || event.getName().equals("deaths")) {
-                event.deferReply().queue();
-                sendPlayerStat(event);
-            } else if (event.getName().equals("reputation")) {
-                event.deferReply().queue();
-                sendPlayerReputation(event);
-            }
-        }
 
         @Override
         public void onMessageReceived(MessageReceivedEvent event) {
-            if (event.getChannel().getId().equals(discordChannelId) && !event.getAuthor().isBot()) {
-                Member member = event.getMember();
-                String name = (member != null && member.getNickname() != null) ? member.getNickname() : event.getAuthor().getName();
-                String discordMessageContent = event.getMessage().getContentDisplay();
-
-                net.kyori.adventure.text.Component discordPrefix = net.kyori.adventure.text.Component.text("[Discord] ")
-                        .color(net.kyori.adventure.text.format.NamedTextColor.GRAY);
-
-                net.kyori.adventure.text.Component playerNameComponent = chromaTagUtil.getColoredPlayerNameComponent(name);
-
-                net.kyori.adventure.text.Component messageComponent = net.kyori.adventure.text.Component.text(": " + discordMessageContent)
-                        .color(net.kyori.adventure.text.format.NamedTextColor.WHITE);
-
-                net.kyori.adventure.text.Component fullMessage = discordPrefix.append(playerNameComponent).append(messageComponent);
-
-                if (Bukkit.getPluginManager().isPluginEnabled("BedrockSupport")) {
-                    try {
-                        String plainMessageForAPI = String.format("[Discord] %s: %s", name, discordMessageContent);
-                        com.jellypudding.fakePlayers.FakePlayersAPI.addExternalMessage(plainMessageForAPI);
-                    } catch (NoClassDefFoundError e) {
-                        getLogger().warning("Could not forward Discord message to FakePlayers. Is it installed and enabled correctly?");
-                    } catch (Exception e) {
-                        getLogger().warning("Error forwarding Discord message to FakePlayers: " + e.getMessage());
+            if (event.getChannel().getId().equals(playerListChannelId)) {
+                if (event.getMessage().getContentDisplay().equals("playerlist") || event.getMessage().getContentDisplay().equals("Playerlist") || event.getMessage().getContentDisplay().equals("リスト")) {
+                    if (playerListChannelId != null) {
+                        sendPlayerListToDiscord();
                     }
-                }
-
-                Bukkit.getScheduler().runTask(DiscordRelay.this, () ->
-                        Bukkit.broadcast(fullMessage)
-                );
-            }
-        }
-
-        private void sendPlayerList(SlashCommandInteractionEvent event) {
-            List<String> realPlayerNames = Bukkit.getOnlinePlayers().stream()
-                    .map(Player::getName)
-                    .collect(Collectors.toList());
-
-            List<String> fakePlayerNames = new ArrayList<>();
-            if (Bukkit.getPluginManager().isPluginEnabled("BedrockSupport")) {
-                try {
-                    Set<String> currentFakes = com.jellypudding.fakePlayers.FakePlayersAPI.getCurrentFakePlayerNames();
-                    if (currentFakes != null) {
-                        fakePlayerNames.addAll(currentFakes);
-                    }
-                } catch (NoClassDefFoundError e) {
-                    getLogger().warning("Could not get fake player list for /list command. Is FakePlayers (BedrockSupport) installed and enabled correctly?");
-                } catch (Exception e) {
-                    getLogger().warning("Error getting fake player list for /list command: " + e.getMessage());
+                } else if (event.getMessage().getContentDisplay().equals("uptime") && playerListChannelId != null) {
+                    sendUptime();
                 }
             }
-
-            List<String> allPlayerNames = new ArrayList<>(realPlayerNames);
-            allPlayerNames.addAll(fakePlayerNames);
-            Collections.sort(allPlayerNames, String.CASE_INSENSITIVE_ORDER);
-
-            int totalPlayerCount = allPlayerNames.size();
-            String playerListString = totalPlayerCount == 0 ? "No players online." : allPlayerNames.stream()
-                    .map(name -> escapeMarkdown(name))
-                    .collect(Collectors.joining(", "));
-            String message = String.format("Online players (%d): %s", totalPlayerCount, playerListString);
-
-            EmbedBuilder embed = new EmbedBuilder()
-                    .setTitle("Player List")
-                    .setDescription(message)
-                    .setColor(Color.BLUE);
-
-            event.getHook().sendMessageEmbeds(embed.build()).queue();
+            if (event.getChannel().getId().equals(chatChannelId)) {
+                if (!event.getAuthor().isBot()){
+                    Member member = event.getMember();
+                    String name = (member != null && member.getNickname() != null) ? member.getNickname() : event.getAuthor().getName();
+                    String message = String.format("\uE103§6[Discord]:<%s>§f %s", name, event.getMessage().getContentDisplay());
+                    Bukkit.getScheduler().runTask(DiscordRelay.this, () -> Bukkit.broadcast(net.kyori.adventure.text.Component.text(message))
+                    );
+                }
+            }
         }
 
-        private void sendUptime(SlashCommandInteractionEvent event) {
-            long uptime = System.currentTimeMillis() - startTime;
-            long days = uptime / (1000 * 60 * 60 * 24);
-            long hours = (uptime / (1000 * 60 * 60)) % 24;
-            long minutes = (uptime / (1000 * 60)) % 60;
-            long seconds = (uptime / 1000) % 60;
+        private void sendUptime() {
+            if (jda != null) {
+                TextChannel channel = jda.getTextChannelById(playerListChannelId);
+                if (channel != null) {
+                    long uptime = System.currentTimeMillis() - startTime;
+                    long days = uptime / (1000 * 60 * 60 * 24);
+                    long hours = (uptime / (1000 * 60 * 60)) % 24;
+                    long minutes = (uptime / (1000 * 60)) % 60;
+                    long seconds = (uptime / 1000) % 60;
 
-            String uptimeString = String.format("%d days, %d hours, %d minutes, %d seconds", days, hours, minutes, seconds);
+                    String uptimeString = String.format("%d日%d時間%d分%d秒です。", days, hours, minutes, seconds);
 
-            EmbedBuilder embed = new EmbedBuilder()
-                    .setTitle("Server Uptime")
-                    .setDescription(uptimeString)
-                    .setColor(Color.GREEN);
-
-            event.getHook().sendMessageEmbeds(embed.build()).queue();
-        }
-
-        private void sendTPS(SlashCommandInteractionEvent event) {
-            double[] tps = Bukkit.getTPS();
-
-            double tps1min = tps.length > 0 ? Math.min(Math.round(tps[0] * 100.0) / 100.0, 20.0) : 0.0;
-            double tps5min = tps.length > 1 ? Math.min(Math.round(tps[1] * 100.0) / 100.0, 20.0) : 0.0;
-            double tps15min = tps.length > 2 ? Math.min(Math.round(tps[2] * 100.0) / 100.0, 20.0) : 0.0;
-            
-            String description = String.format("**1 minute:** %.2f TPS\n**5 minutes:** %.2f TPS\n**15 minutes:** %.2f TPS", 
-                    tps1min, tps5min, tps15min);
-            
-            // Choose colour based on worst TPS.
-            double worstTPS = Math.min(Math.min(tps1min, tps5min), tps15min);
-            Color color = worstTPS >= 18.0 ? Color.GREEN : worstTPS >= 15.0 ? Color.YELLOW : Color.RED;
-
-            EmbedBuilder embed = new EmbedBuilder()
-                    .setTitle("Server TPS")
-                    .setDescription(description)
-                    .setColor(color);
-
-            event.getHook().sendMessageEmbeds(embed.build()).queue();
-        }
-
-        private void sendPlayerStat(SlashCommandInteractionEvent event) {
-            String playerName = event.getOption("name").getAsString();
-            String commandName = event.getName();
-            String statType = getStatTypeFromCommand(commandName);
-
-            withOfflineStatsAPI(event, playerName, api -> {
-                String formattedStat = api.getFormattedStat(playerName, statType);
-
-                EmbedBuilder embed = new EmbedBuilder();
-                if (formattedStat == null || formattedStat.isEmpty()) {
-                    embed.setTitle("No Data Found")
-                            .setDescription("No data found for player: " + escapeMarkdown(playerName))
-                            .setColor(Color.RED);
-                } else {
-                    embed.setTitle("Player Statistics")
-                            .setDescription(escapeMarkdown(formattedStat))
+                    EmbedBuilder embed = new EmbedBuilder()
+                            .setTitle(uptimeString)
+                            .setFooter(serverPrefix + ": サーバの起動時間")
                             .setColor(Color.GREEN);
-                }
-                return embed;
-            });
-        }
-
-        private String getStatTypeFromCommand(String commandName) {
-            switch (commandName.toLowerCase()) {
-                case "firstseen": return "firstseen";
-                case "lastseen": return "lastseen";
-                case "timeplayed": return "timeplayed";
-                case "chatter": return "chatter";
-                case "kills": return "kills";
-                case "deaths": return "deaths";
-                default: return "";
-            }
-        }
-
-        private void sendPlayerReputation(SlashCommandInteractionEvent event) {
-            String playerName = event.getOption("player").getAsString();
-
-            withOfflineStatsAPI(event, playerName, api -> {
-                var stats = api.getPlayerStats(playerName);
-
-                EmbedBuilder embed = new EmbedBuilder();
-                if (stats == null) {
-                    embed.setTitle("No Data Found")
-                            .setDescription("No data found for player: " + escapeMarkdown(playerName))
-                            .setColor(Color.RED);
+                    channel.sendMessageEmbeds(embed.build()).queue();
+                    }
                 } else {
-                    int netRep = stats.getNetRep();
-                    int positiveRep = stats.getPositiveRep();
-                    int negativeRep = stats.getNegativeRep();
-
-                    String description = String.format("%s has %d reputation (+%d/-%d)",
-                            escapeMarkdown(stats.getUsername()), netRep, positiveRep, negativeRep);
-
-                    Color color;
-                    if (netRep > 0) {
-                        color = Color.GREEN;
-                    } else if (netRep < 0) {
-                        color = Color.RED;
-                    } else {
-                        color = Color.WHITE;
+                    getLogger().info("Discord channel not found!");
                     }
-
-                    embed.setTitle("Player Reputation")
-                            .setDescription(description)
-                            .setColor(color);
                 }
-                return embed;
-            });
-        }
-
-        @FunctionalInterface
-        private interface OfflineStatsTask {
-            EmbedBuilder execute(com.jellypudding.offlineStats.api.OfflineStatsAPI api) throws Exception;
-        }
-
-        private void withOfflineStatsAPI(SlashCommandInteractionEvent event, String playerName, OfflineStatsTask task) {
-            if (!Bukkit.getPluginManager().isPluginEnabled("OfflineStats")) {
-                EmbedBuilder embed = new EmbedBuilder()
-                        .setTitle("Error")
-                        .setDescription("OfflineStats plugin is not enabled.")
-                        .setColor(Color.RED);
-                event.getHook().sendMessageEmbeds(embed.build()).queue();
-                return;
-            }
-
-            try {
-                com.jellypudding.offlineStats.OfflineStats offlineStatsPlugin =
-                    (com.jellypudding.offlineStats.OfflineStats) Bukkit.getPluginManager().getPlugin("OfflineStats");
-                com.jellypudding.offlineStats.api.OfflineStatsAPI api = offlineStatsPlugin.getAPI();
-
-                getServer().getScheduler().runTaskAsynchronously(DiscordRelay.this, () -> {
-                    try {
-                        EmbedBuilder embed = task.execute(api);
-                        event.getHook().sendMessageEmbeds(embed.build()).queue();
-                    } catch (Exception e) {
-                        EmbedBuilder embed = new EmbedBuilder()
-                                .setTitle("Error")
-                                .setDescription("Error retrieving data for " + escapeMarkdown(playerName) + ": " + e.getMessage())
-                                .setColor(Color.RED);
-                        event.getHook().sendMessageEmbeds(embed.build()).queue();
-                    }
-                });
-            } catch (NoClassDefFoundError e) {
-                getLogger().warning("Could not access OfflineStats. Is it installed and enabled correctly?");
-                EmbedBuilder embed = new EmbedBuilder()
-                        .setTitle("Error")
-                        .setDescription("OfflineStats plugin is not available.")
-                        .setColor(Color.RED);
-                event.getHook().sendMessageEmbeds(embed.build()).queue();
-            } catch (Exception e) {
-                getLogger().warning("Error accessing OfflineStats: " + e.getMessage());
-                EmbedBuilder embed = new EmbedBuilder()
-                        .setTitle("Error")
-                        .setDescription("Error accessing OfflineStats: " + e.getMessage())
-                        .setColor(Color.RED);
-                event.getHook().sendMessageEmbeds(embed.build()).queue();
-            }
-        }
-
-        private static String escapeMarkdown(String text) {
-            if (text == null) return null;
-            return text.replace("\\", "\\\\")
-                       .replace("*", "\\*")
-                       .replace("_", "\\_")
-                       .replace("~", "\\~")
-                       .replace("`", "\\`")
-                       .replace("|", "\\|");
-        }
-    }
-
-    // --- Public API Methods ---
-
-    /** For DiscordRelayAPI: Relays player join event */
-    public void relayPlayerJoin(String playerName) {
-        if (!isConfigured) return;
-        sendPlayerEventToDiscord(playerName, "joined the game", Color.GREEN);
-    }
-
-    /** For DiscordRelayAPI: Relays player leave event */
-    public void relayPlayerLeave(String playerName) {
-        if (!isConfigured) return;
-        sendPlayerEventToDiscord(playerName, "left the game", Color.RED);
-    }
-
-    /** For DiscordRelayAPI: Relays player chat message */
-    public void relayPlayerMessage(String playerName, String message) {
-        if (!isConfigured) return;
-        sendPlayerMessageToDiscord(playerName, message);
-    }
-
-    /** For DiscordRelayAPI: Relays player death message */
-    public void relayPlayerDeath(String playerName, String deathMessage) {
-        if (!isConfigured) return;
-        sendDeathMessageToDiscord(playerName, deathMessage);
-    }
-
-    /** For DiscordRelayAPI: Sends a custom message to Discord */
-    public void relayCustomMessage(String message) {
-        if (!isConfigured) return;
-        sendToDiscord(message);
-    }
-
-    /** For DiscordRelayAPI: Sends a formatted embed message to Discord */
-    public void relayFormattedMessage(String title, String description, Color colour) {
-        if (!isConfigured) return;
-
-        if (jda != null) {
-            TextChannel channel = jda.getTextChannelById(discordChannelId);
-            if (channel != null) {
-                EmbedBuilder embed = new EmbedBuilder();
-
-                if (title != null && !title.trim().isEmpty()) {
-                    embed.setTitle(title);
-                }
-
-                if (description != null && !description.trim().isEmpty()) {
-                    embed.setDescription(description);
-                }
-
-                if (colour != null) {
-                    embed.setColor(colour);
-                }
-
-                channel.sendMessageEmbeds(embed.build()).queue();
-            } else {
-                getLogger().warning("Discord channel not found!");
-            }
-        }
     }
 }

@@ -1,17 +1,14 @@
 # DiscordRelay Plugin
 
-**DiscordRelay** is a Minecraft Paper 1.21.11 plugin that creates a bidirectional chat bridge between your Minecraft server and a Discord channel. Although it was custom built for [minecraftoffline.net](https://www.minecraftoffline.net) any server can use it.
+**DiscordRelay** is a Minecraft Paper 1.21.3 plugin that creates a bidirectional chat bridge between your Minecraft server and a Discord channel.
 
 ## Features
 - Relay chat messages from Minecraft to Discord and vice versa.
 - Display player join and leave events in Discord.
 - Show player death messages in Discord.
 - Show player avatars in Discord messages.
-- Configurable word filter to sanitise messages sent to Discord.
-- ChromaTag Integration (optional): Display player name colours in in-game Discord relay messages.
 - `/list` command in Discord to see online Minecraft players.
 - `/uptime` command in Discord to check server uptime.
-- `/tps` command in Discord to check server TPS (ticks per second).
 - Server start-up and shutdown notifications in Discord.
 
 ## Installation
@@ -46,89 +43,24 @@
 2. Set `discord-bot-token` to your bot's token.
 3. Set `discord-channel-id` to the ID of the Discord channel you want to use for the relay.
    (To get the channel ID, enable Developer Mode in Discord settings, then right-click the channel and select "Copy ID")
-4. (Optional) Configure the word filter to replace inappropriate language in messages sent to Discord. This is recommended as Discord is sensitive and it will help you avoid trouble.
-5. Save the file.
+4. Save the file.
 
 Example `config.yml`:
 ```yaml
 discord-bot-token: 'YOUR_BOT_TOKEN_HERE'
 discord-channel-id: 'YOUR_CHANNEL_ID_HERE'
-
-word-filter:
-  enabled: true
-  words:
-    - "badword:replacement"
 ```
 
 ## In-game Commands
-- `/discordrelay reload`: Reloads the plugin configuration. Requires `discordrelay.reload` permission (default: op).
-- `/discordrelay send <colour> <message>`: Sends a formatted message to Discord with the specified colour. Requires `discordrelay.send` permission (default: op).
-  - Available colours: red, green, blue, yellow, orange, purple, pink, grey, white, black
-  - Examples:
-    - `/discordrelay send red Server will restart in 5 minutes!` (uses default title "Server Message")
-    - `/discordrelay send red Alert: Server will restart in 5 minutes!` (uses "Alert" as title)
+`/discordrelay reload`: Reloads the plugin configuration.
 
 ## Discord Commands
 - `/list`: Shows the list of online Minecraft players.
 - `/uptime`: Displays the current uptime of the Minecraft server.
-- `/tps`: Shows the server's TPS (ticks per second) for the last 1, 5, and 15 minutes.
-
-## Permissions
-- `discordrelay.use`: Allows using DiscordRelay commands (default: op).
-- `discordrelay.reload`: Allows reloading the plugin configuration (default: op).
-- `discordrelay.send`: Allows sending formatted messages to Discord (default: op).
-
-## API for Developers
-
-### Setup Dependencies
-1. Download the latest `DiscordRelay.jar` and place it in a `libs` directory - and then add this to your `build.gradle` file:
-    ```gradle
-    dependencies {
-        compileOnly files('libs/DiscordRelay-1.1.7.jar')
-    }
-    ```
-
-2. If DiscordRelay is absolutely required by your plugin, then add this to your `plugin.yml` file - and this means if DiscordRelay is not found then your plugin will not load:
-    ```yaml
-    depend: [DiscordRelay]
-    ```
-
-### Getting DiscordRelay Instance
-You can import DiscordRelay into your project through using the below code:
-```java
-import org.bukkit.Bukkit;
-import com.jellypudding.discordRelay.DiscordRelayAPI;
-
-// Check if DiscordRelay is available and ready
-if (DiscordRelayAPI.isReady()) {
-    // Plugin is loaded and configured - safe to use API
-    DiscordRelayAPI.sendCustomMessage("Hello from my plugin!");
-}
-```
-
-### Available API Methods
-```java
-// Check if DiscordRelay is loaded and properly configured
-boolean isReady = DiscordRelayAPI.isReady();
-
-// Send a custom message to Discord (plain text)
-DiscordRelayAPI.sendCustomMessage("Custom message goes here :)");
-
-// Send a formatted message to Discord with colour and title
-DiscordRelayAPI.sendFormattedMessage("Alert", "I spilt my milk!", Color.RED);
-
-// Send player join event (if needed)
-DiscordRelayAPI.sendPlayerJoin("PlayerName");
-
-// Send player leave event (if needed)
-DiscordRelayAPI.sendPlayerLeave("PlayerName");
-
-// Send player chat message (if needed)
-DiscordRelayAPI.sendPlayerMessage("PlayerName", "Hello Discord!");
-
-// Send player death message (if needed)
-DiscordRelayAPI.sendPlayerDeath("PlayerName", "PlayerName was slain by a zombie");
-```
 
 ## Support Me
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K3K715TC1R)
+Donations will help me with the development of this project.
+
+One-off donation: https://ko-fi.com/lolwhatyesme
+
+Patreon: https://www.patreon.com/lolwhatyesme

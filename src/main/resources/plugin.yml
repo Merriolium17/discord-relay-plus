@@ -1,25 +1,19 @@
-name: DiscordRelay
-version: '1.2.0'
+name: DiscordRelayPlus
+version: '1.0.1.31'
 main: com.jellypudding.discordRelay.DiscordRelay
-api-version: '1.21'
+api-version: '1.18.1'
 description: "Relays messages between Minecraft and Discord."
-author: AlphaAlex115
-website: www.minecraftoffline.net
-softdepend: [BedrockSupport, OfflineStats, ChromaTag]
-loadbefore: [BedrockSupport, OfflineStats, SimpleLifesteal, BattleLock, OfflineArena]
+author: JellyPudding & Merriolium
 commands:
   discordrelay:
     description: "Manage the DiscordRelay plugin"
-    usage: "/discordrelay <reload|send> [colour] [message]"
+    usage: "/discordrelay reload"
     permission: discordrelay.use
     permission-message: "You don't have permission to use DiscordRelay commands."
 permissions:
   discordrelay.use:
-    description: "Allows using DiscordRelay commands"
+    description: Allows use of the DiscordRelay command
     default: op
   discordrelay.reload:
-    description: "Allows reloading the DiscordRelay plugin"
-    default: op
-  discordrelay.send:
-    description: "Allows sending formatted messages to Discord"
+    description: Allows reloading the DiscordRelay plugin
     default: op
