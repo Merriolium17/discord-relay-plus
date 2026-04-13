@@ -1,18 +1,18 @@
 # DiscordRelay Plugin
 
-**DiscordRelay** is a Minecraft Paper 1.21.3 plugin that creates a bidirectional chat bridge between your Minecraft server and a Discord channel.
+**DiscordRelay** is a Minecraft Paper 1.21.11 plugin that creates a bidirectional chat bridge between your Minecraft server and a Discord channel or Thread.
 
 ## Features
 - Relay chat messages from Minecraft to Discord and vice versa.
 - Display player join and leave events in Discord.
 - Show player death messages in Discord.
 - Show player avatars in Discord messages.
-- `/list` command in Discord to see online Minecraft players.
-- `/uptime` command in Discord to check server uptime.
+- `playerlist` or `リスト` command in Discord to see online Minecraft players.
+- `uptime` command in Discord to check server uptime.
 - Server start-up and shutdown notifications in Discord.
 
 ## Installation
-1. Download the latest release [here](https://github.com/Jelly-Pudding/minecraft-discord-relay/releases/latest).
+1. Download the latest release [here](https://github.com/Merriolium17/discord-relay-plus/releases/latest).
 2. Place the `.jar` file in your Minecraft server's `plugins` folder.
 3. Restart your server to generate the default configuration file.
 4. Set up your Discord bot (see Discord Bot Setup below).
@@ -41,22 +41,28 @@
 ## Configuration
 1. Open the `plugins/DiscordRelay/config.yml` file.
 2. Set `discord-bot-token` to your bot's token.
-3. Set `discord-channel-id` to the ID of the Discord channel you want to use for the relay.
+3. Set `chat-channel-id` to the ID of the Discord channel you want to use for the relay.
    (To get the channel ID, enable Developer Mode in Discord settings, then right-click the channel and select "Copy ID")
-4. Save the file.
+4. Set `channel-type` to which your Discord ID type, `CHANNEL` or `THREAD`.
+5. Save the file.
 
 Example `config.yml`:
 ```yaml
 discord-bot-token: 'YOUR_BOT_TOKEN_HERE'
-discord-channel-id: 'YOUR_CHANNEL_ID_HERE'
+join-leave-channel-id: "YOUR_CHANNEL_ID_HERE"
+chat-channel-id: "YOUR_CHANNEL_ID_HERE"
+death-channel-id: "YOUR_CHANNEL_ID_HERE"
+playerlist-channel-id: "YOUR_CHANNEL_ID_HERE"
+channel-type: "CHANNEL"
+server-prefix-id: "YOUR_SERVER_PREFIX_ID_HERE"
 ```
 
 ## In-game Commands
 `/discordrelay reload`: Reloads the plugin configuration.
 
 ## Discord Commands
-- `/list`: Shows the list of online Minecraft players.
-- `/uptime`: Displays the current uptime of the Minecraft server.
+- `playerlist`: Shows the list of online Minecraft players.
+- `uptime`: Displays the current uptime of the Minecraft server.
 
 ## Support Me
 Donations will help me with the development of this project.
