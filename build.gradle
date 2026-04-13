@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'com.jellypudding'
-version = '1.2.0'
+version = '1.0.1.31'
 
 repositories {
     mavenCentral()
@@ -16,18 +16,19 @@ repositories {
         name = "sonatype"
         url = "https://oss.sonatype.org/content/groups/public/"
     }
+    maven {
+        url = "https://repo.opencollab.dev/main/"
+    }
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
-    implementation "net.dv8tion:JDA:6.2.0"
-    // Dependencies for local plugins (needed for compilation/IDE)
-    compileOnly files('libs/ChromaTag-1.2.6.jar')
-    compileOnly files('libs/fake-players-1.6.jar')
-    compileOnly files('libs/OfflineStats-1.2.jar')
+    compileOnly("io.papermc.paper:paper-api:1.18.1-R0.1-SNAPSHOT")
+    compileOnly('org.geysermc.floodgate:api:2.2.4-SNAPSHOT')
+    compileOnly("de.hexaoxi:carbonchat-api:3.0.0-beta.26")
+    implementation "net.dv8tion:JDA:5.2.2"
 }
 
-def targetJavaVersion = 21
+def targetJavaVersion = 17
 
 java {
     toolchain {
